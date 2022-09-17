@@ -1,0 +1,14 @@
+{
+  "name": "task-tracker",
+  "version": "1.0.0",
+  "description": "An individual time tracker to track and manage time spent on projects and other daily development tasks",
+  "main": "index.js",
+  "author": "Andrew Telkamp",
+  "license": "MIT",
+  "private": false,
+  "type": "module",
+  "dependencies": {
+    "commander": "^9.4.0",
+    "typescript": "^4.8.3"
+  }
+}

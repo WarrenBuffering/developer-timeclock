@@ -1,0 +1,47 @@
+[
+  {
+    "name": "reviewing robin's mr",
+    "type": "mr review",
+    "notes": ["robin is great"],
+    "todos": [{ "description": "eat the chips", "isDone": false }],
+    "times": [
+      {
+        "description": "refactoring tests",
+        "start": 1663433457944,
+        "stop": 166343645944
+      }
+    ]
+  },
+  {
+    "name": "building base chips",
+    "type": "coding",
+    "notes": ["chips make me hungry"],
+    "todos": [{ "description": "eat the chips", "isDone": false }],
+    "times": [
+      {
+        "description": "writing chip component",
+        "start": 1663483457944,
+        "stop": 166349645944
+      },
+      {
+        "description": "writing tests",
+        "start": 166348357944,
+        "stop": 166349695944,
+        "notes": ["chips make me hungry"]
+      }
+    ]
+  },
+  {
+    "name": "MFC single-app",
+    "type": "meeting",
+    "notes": ["this meeting is stupid", "get me out of here"],
+    "todos": [{ "description": "find out the best way to dice pineapple" }],
+    "times": [
+      {
+        "description": "Discussing a POC",
+        "start": 166348357944,
+        "stop": 166349695944
+      }
+    ]
+  }
+]
