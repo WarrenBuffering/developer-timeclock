@@ -23,6 +23,15 @@ var __importStar = (this && this.__importStar) || function (mod) {
     __setModuleDefault(result, mod);
     return result;
 };
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -38,10 +47,9 @@ const rl = readline.createInterface({
 });
 const projectsFilePath = path_1.default.join(__dirname, '/data/projects.json');
 const sessionsFilePath = path_1.default.join(__dirname, '/data/sessions.json');
-function ask({ question, validator, validationWarning = 'Try again: ', attempts = 3, }) {
-    console.log('');
+function ask({ question, validator, validationWarning = 'INVALID_COMMAND, try again: ', attempts = 1, maxAttempts = 3, }) {
     return new Promise((resolve, reject) => {
-        if (attempts > 3) {
+        if (attempts > maxAttempts) {
             reject('Maximum attempts reached.');
             rl.close();
             return;
@@ -50,10 +58,11 @@ function ask({ question, validator, validationWarning = 'Try again: ', attempts 
             if (validator && validator(answer)) {
                 resolve(answer);
             }
-            else if (answer) {
+            else if (!validator && answer) {
                 resolve(answer);
             }
             else {
+                console.log('');
                 console.log(validationWarning);
                 ask({
                     question,
@@ -133,93 +142,106 @@ function writeSessions(sessions) {
 function writeProjects(projects) {
     fs_1.default.writeFileSync(projectsFilePath, JSON.stringify(projects, null, 2));
 }
-function promptStillClockedIn() {
+function promptStillClockedIn() { }
+function handleForgottenClockOut({ lastSession, lastProjectName, }) {
     return new Promise((res, rej) => {
         ask({
-            question: 
-        });
-    });
-}
-function handleForgottenClockOut({ lastSession, lastProjectName, }) {
-    return new Promise((resolve, reject) => {
-        ask({
-            question: `You are still clocked in on ${lastProjectName} working on ${lastSession.description}. \n Clock out with current date and time? (y/n): `,
+            question: `Should we clock you out with current date and time? (y/n): `,
             validator: utils_1.isYesOrNo,
         })
             .then((ans) => {
             if (ans.toLowerCase() === 'y') {
                 lastSession.out = (0, utils_1.getCurrentDatetime)();
+                res(true);
             }
             else {
+                console.log('');
                 ask({
-                    question: 'What time should we clock you out? \n (use 24H military time with format hh:mm): ',
+                    question: 'What time should we clock you out? \nUse 24H military time with format "hh:mm" (no quotes): ',
                     validator: utils_1.isValidTime,
                 })
                     .then((time) => {
+                    console.log('');
                     ask({
-                        question: 'Was this on the same date as your clock-in? (y/n)',
+                        question: 'Was this on the same date as your clock-in? (y/n): ',
+                        validator: utils_1.isYesOrNo,
                     }).then((isSameDate) => {
                         if (isSameDate.toLowerCase() === 'y') {
-                            const clockoutDatetime = (0, utils_1.createNewTimeOnDate)(
-                            // @ts-expect-error
-                            lastSession.in, time);
+                            const clockoutDatetime = (0, utils_1.createNewTimeOnDate)(lastSession.in, time);
                             lastSession.out = clockoutDatetime;
-                            resolve;
+                            res(true);
                         }
                         else {
+                            console.log('');
                             ask({
-                                question: 'What date should this clock out take place? \n (use mm/dd/yyy format): ',
+                                question: 'What date should this clock out take place? \nUse MM/DD/YYYY format: ',
+                                validator: utils_1.isValidDate,
                             }).then((date) => {
                                 const fullClockoutDateTime = (0, dayjs_1.default)(`${date} ${time}`).format('YYYY-MM-DDTmm:hh');
                                 lastSession.out = fullClockoutDateTime;
+                                res(true);
                             });
                         }
                     });
                 })
                     .catch((err) => {
                     console.log(err);
-                    reject();
+                    res(true);
                 });
             }
         })
             .catch((err) => {
             console.log('Unable to clock out', err);
-            reject();
+            res(true);
         });
     });
 }
 function handleClockIn() {
-    const projects = readProjects();
-    const sessions = readSessions();
-    if (!sessions.length && !projects.length) {
-        createNewProject();
-    }
-    else {
-        const lastSession = sessions[sessions.length - 1];
-        const lastProject = projects.find((p) => p.id === lastSession.projectID);
-        if (lastSession && lastSession.in !== null && !lastSession.out) {
-            yield handleForgottenClockOut({
-                lastSession,
-                lastProjectName: (lastProject === null || lastProject === void 0 ? void 0 : lastProject.name) || '',
+    return __awaiter(this, void 0, void 0, function* () {
+        const projects = readProjects();
+        const sessions = readSessions();
+        if (!sessions.length && !projects.length) {
+            createNewProject();
+        }
+        else {
+            const lastSession = sessions[sessions.length - 1];
+            const lastProject = projects.find((p) => p.id === lastSession.projectID);
+            if (lastSession && lastSession.in !== null && !lastSession.out) {
+                console.log(`You are still clocked in on "${lastProject === null || lastProject === void 0 ? void 0 : lastProject.name}" working on "${lastSession.description}."`);
+                yield handleForgottenClockOut({
+                    lastSession,
+                    lastProjectName: (lastProject === null || lastProject === void 0 ? void 0 : lastProject.name) || '',
+                });
+                console.log("Great! You're clocked out! Now let's get back to clocking in.");
+                writeSessions(sessions);
+                handleClockIn();
+            }
+            ask({
+                question: 'Is this a new project? (y/n): ',
+                validator: utils_1.isYesOrNo,
+            }).then((ans) => {
+                if (ans.toLowerCase() === 'y') {
+                    createNewProject();
+                }
             });
         }
-    }
-    // rl.question('Clock in to an existing project? y/n', (line) => {
-    //   if (line.toLowerCase === 'y') {
-    //     console.log('person selected yes');
-    //     //   let projectsList = '';
-    //     //     projectNames.forEach((project, index) => {
-    //     //       console.log(`${index + 1}. ${project}`);
-    //     //     });
-    //     //     rl.question(
-    //     //       'Choose a project by typing the corresponding number. Existing projects:',
-    //     //       (projectNumber) => {}
-    //     //     );
-    //     // }
-    //   } else {
-    //     createNewProject(projects, sessions);
-    //   }
-    // });
+        // rl.question('Clock in to an existing project? y/n', (line) => {
+        //   if (line.toLowerCase === 'y') {
+        //     console.log('person selected yes');
+        //     //   let projectsList = '';
+        //     //     projectNames.forEach((project, index) => {
+        //     //       console.log(`${index + 1}. ${project}`);
+        //     //     });
+        //     //     rl.question(
+        //     //       'Choose a project by typing the corresponding number. Existing projects:',
+        //     //       (projectNumber) => {}
+        //     //     );
+        //     // }
+        //   } else {
+        //     createNewProject(projects, sessions);
+        //   }
+        // });
+    });
 }
 function handleClockOut() {
     const projects = readProjects();

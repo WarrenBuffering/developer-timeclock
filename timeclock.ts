@@ -27,17 +27,18 @@ const sessionsFilePath = path.join(__dirname, '/data/sessions.json');
 function ask({
   question,
   validator,
-  validationWarning = 'Try again: ',
-  attempts = 3,
+  validationWarning = 'INVALID_COMMAND, try again: ',
+  attempts = 1,
+  maxAttempts = 3,
 }: {
   question: string;
   validator?: (args: any) => boolean;
   validationWarning?: string;
   attempts?: number;
+  maxAttempts?: number;
 }): Promise<string> {
-  console.log('');
   return new Promise((resolve, reject) => {
-    if (attempts > 3) {
+    if (attempts > maxAttempts) {
       reject('Maximum attempts reached.');
       rl.close();
       return;
@@ -46,9 +47,10 @@ function ask({
     rl.question(question, (answer) => {
       if (validator && validator(answer)) {
         resolve(answer);
-      } else if (answer) {
+      } else if (!validator && answer) {
         resolve(answer);
       } else {
+        console.log('');
         console.log(validationWarning);
         ask({
           question,
@@ -141,13 +143,7 @@ function writeProjects(projects: Project[]) {
   fs.writeFileSync(projectsFilePath, JSON.stringify(projects, null, 2));
 }
 
-function promptStillClockedIn() {
-  return new Promise((res, rej) => {
-    ask({
-      question: 
-    })
-  })
-}
+function promptStillClockedIn() {}
 
 function handleForgottenClockOut({
   lastSession,
@@ -156,61 +152,67 @@ function handleForgottenClockOut({
   lastSession: Session;
   lastProjectName: string;
 }) {
-  return new Promise((resolve, reject) => {
+  return new Promise((res, rej) => {
     ask({
-      question: `You are still clocked in on ${lastProjectName} working on ${lastSession.description}. \n Clock out with current date and time? (y/n): `,
+      question: `Should we clock you out with current date and time? (y/n): `,
       validator: isYesOrNo,
     })
       .then((ans) => {
         if (ans.toLowerCase() === 'y') {
           lastSession.out = getCurrentDatetime();
+          res(true);
         } else {
+          console.log('');
           ask({
             question:
-              'What time should we clock you out? \n (use 24H military time with format hh:mm): ',
+              'What time should we clock you out? \nUse 24H military time with format "hh:mm" (no quotes): ',
             validator: isValidTime,
           })
             .then((time) => {
+              console.log('');
               ask({
-                question: 'Was this on the same date as your clock-in? (y/n)',
+                question: 'Was this on the same date as your clock-in? (y/n): ',
+                validator: isYesOrNo,
               }).then((isSameDate) => {
                 if (isSameDate.toLowerCase() === 'y') {
                   const clockoutDatetime = createNewTimeOnDate(
-                    // @ts-expect-error
                     lastSession.in,
                     time
                   );
 
                   lastSession.out = clockoutDatetime;
-                  resolve
+                  res(true);
                 } else {
+                  console.log('');
                   ask({
                     question:
-                      'What date should this clock out take place? \n (use mm/dd/yyy format): ',
+                      'What date should this clock out take place? \nUse MM/DD/YYYY format: ',
+                    validator: isValidDate,
                   }).then((date) => {
                     const fullClockoutDateTime = dayjs(
                       `${date} ${time}`
                     ).format('YYYY-MM-DDTmm:hh');
 
                     lastSession.out = fullClockoutDateTime;
+                    res(true);
                   });
                 }
               });
             })
             .catch((err) => {
               console.log(err);
-              reject()
+              res(true);
             });
         }
       })
       .catch((err) => {
         console.log('Unable to clock out', err);
-        reject();
+        res(true);
       });
   });
 }
 
-function handleClockIn() {
+async function handleClockIn() {
   const projects: Project[] = readProjects();
   const sessions: Session[] = readSessions();
 
@@ -221,11 +223,31 @@ function handleClockIn() {
     const lastProject = projects.find((p) => p.id === lastSession.projectID);
 
     if (lastSession && lastSession.in !== null && !lastSession.out) {
+      console.log(
+        `You are still clocked in on "${lastProject?.name}" working on "${lastSession.description}."`
+      );
+
       await handleForgottenClockOut({
         lastSession,
         lastProjectName: lastProject?.name || '',
       });
+
+      console.log(
+        "Great! You're clocked out! Now let's get back to clocking in."
+      );
+
+      writeSessions(sessions);
+      handleClockIn();
     }
+
+    ask({
+      question: 'Is this a new project? (y/n): ',
+      validator: isYesOrNo,
+    }).then((ans) => {
+      if (ans.toLowerCase() === 'y') {
+        createNewProject();
+      }
+    });
   }
 
   // rl.question('Clock in to an existing project? y/n', (line) => {
