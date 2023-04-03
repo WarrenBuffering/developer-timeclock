@@ -58,6 +58,7 @@ async function handleBreakStart() {
         lastSession.out = datetimeResponse.data;
         writeSessions(sessions);
         console.log('Break started');
+        rl.close();
       }
     }
   }
@@ -94,7 +95,8 @@ async function handleBreakEnd() {
           console.log('Break ended');
           rl.close();
         } else {
-          throw new Error(datetimeResponse.error);
+          console.log(datetimeResponse.error);
+          rl.close();
         }
       }
     }
@@ -114,51 +116,62 @@ async function handleClockIn() {
     const sessions = readSessions();
     const tasks = readTasks();
 
-    // use existing or create new project
-    const projResponse = await whichProjectPrompt({ projects, rl });
+    if (sessions.length) {
+      const lastSession = sessions[sessions.length - 1];
+      if (!lastSession.out) {
+        console.log("You're already clocked in");
+        rl.close();
+      }
+    } else {
+      // use existing or create new project
+      const projResponse = await whichProjectPrompt({ projects, rl });
 
-    if (projResponse.success) {
-      const project = projResponse.data;
+      if (projResponse.success) {
+        const project = projResponse.data;
 
-      // use existing or create new task
-      const taskResponse = await whichTaskPrompt({
-        projectID: project.id,
-        rl,
-        tasks,
-      });
+        // use existing or create new task
+        const taskResponse = await whichTaskPrompt({
+          projectID: project.id,
+          rl,
+          tasks,
+        });
 
-      if (taskResponse.success) {
-        const task = taskResponse.data;
+        if (taskResponse.success) {
+          const task = taskResponse.data;
 
-        const timeResponse = await getTimePrompt({ rl });
+          const timeResponse = await getTimePrompt({ rl });
 
-        if (timeResponse.success) {
-          // create an assocated session
-          const sessionResponse = await createNewSessionPrompt({
-            datetime: timeResponse.data,
-            projectID: project.id,
-            sessions,
-            taskID: task.id,
-            rl,
-          });
+          if (timeResponse.success) {
+            // create an assocated session
+            const sessionResponse = await createNewSessionPrompt({
+              datetime: timeResponse.data,
+              projectID: project.id,
+              sessions,
+              taskID: task.id,
+              rl,
+            });
 
-          if (sessionResponse.success) {
-            writeProjects(projects);
-            writeTasks(tasks);
-            writeSessions(sessions);
-            console.log(
-              `Clocked in to ${project.name} on ${task.name} working on ${sessionResponse.data.description}`
-            );
+            if (sessionResponse.success) {
+              writeProjects(projects);
+              writeTasks(tasks);
+              writeSessions(sessions);
+              console.log(
+                `Clocked in to ${project.name} on ${task.name} working on ${sessionResponse.data.description}`
+              );
+              rl.close();
+            }
+          } else {
+            console.log(timeResponse.error);
             rl.close();
           }
         } else {
-          throw new Error(timeResponse.error);
+          console.log(taskResponse.error);
+          rl.close();
         }
       } else {
-        throw new Error(taskResponse.error);
+        console.log(projResponse.error);
+        rl.close();
       }
-    } else {
-      throw new Error(projResponse.error);
     }
   } catch (err) {
     console.log(err);
@@ -187,7 +200,7 @@ async function handleClockOut() {
         console.log('Clocked out successfully');
         rl.close();
       } else {
-        throw new Error(timeResponse.error);
+        console.log(timeResponse.error);
       }
     }
   } catch (err) {
@@ -261,13 +274,16 @@ async function handleSwitchProject() {
             rl.close();
           }
         } else {
-          throw new Error(timeResponse.error);
+          console.log(timeResponse.error);
+          rl.close();
         }
       } else {
-        throw new Error(taskResponse.error);
+        console.log(taskResponse.error);
+        rl.close();
       }
     } else {
-      throw new Error(projectResponse.error);
+      console.log(projectResponse.error);
+      rl.close();
     }
   } catch (err) {
     console.log(err);
@@ -326,10 +342,12 @@ async function handleSwitchTask() {
               rl.close();
             }
           } else {
-            throw new Error(timeResponse.error);
+            console.log(timeResponse.error);
+            rl.close();
           }
         } else {
-          throw new Error(taskResponse.error);
+          console.log(taskResponse.error);
+          rl.close();
         }
       }
     }

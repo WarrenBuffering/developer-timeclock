@@ -34,7 +34,9 @@ function whichTaskPrompt({
       if (projectTasks.length) {
         let tasksList = '';
 
-        tasks.forEach((p, index) => (tasksList += `\n${index} - ${p.name}`));
+        tasks.forEach(
+          (p, index) => (tasksList += `\n${index + 1} - ${p.name}`)
+        );
         console.log(tasksList);
         console.log('');
 
@@ -42,8 +44,8 @@ function whichTaskPrompt({
           'Which task (enter associated number or press enter to create new task): ',
           (index) => {
             if (index) {
-              if (+index >= 0 && +index < tasks.length) {
-                const task = tasks[+index];
+              if (+index > 0 && +index <= tasks.length) {
+                const task = tasks[+index - 1];
                 resolve({
                   success: true,
                   data: task,
