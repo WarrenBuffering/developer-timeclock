@@ -1,313 +1,402 @@
 #!/usr/bin/env node
-import fs from 'fs';
-import path from 'path';
 import * as readline from 'readline';
 
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 dayjs.extend(utc);
 
-import { getCurrentDatetime } from './utils';
+import createNewProjectPrompt from './prompts/createNewProjectPrompt';
+import createNewSessionPrompt from './prompts/createNewSessionPrompt';
+import createNewTaskPrompt from './prompts/createNewTaskPrompt';
+import getTimePrompt from './prompts/getTimePrompt';
+import whichProjectPrompt from './prompts/whichProjectPrompt';
+import whichTaskPrompt from './prompts/whichTaskPrompt';
+import yesNoPrompt from './prompts/yesNoPrompt';
 
-import type { Project, Session } from './interfaces';
+import {
+  readProjects,
+  readSessions,
+  readTasks,
+  writeProjects,
+  writeSessions,
+  writeTasks,
+} from './utils';
+
+import type {
+  Project,
+  PromptSuccessResponse,
+  PromptErrorResponse,
+  Session,
+  Task,
+} from './interfaces';
 
 const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout,
 });
 
-const projectsFilePath = path.join(__dirname, '/data/projects.json');
-const sessionsFilePath = path.join(__dirname, '/data/sessions.json');
+/*=============================================================================
+= Break Start
+=============================================================================*/
 
-function readSessions(): Session[] {
-  const rawData = fs.readFileSync(sessionsFilePath, 'utf8');
-  return rawData ? JSON.parse(rawData) : {};
-}
+async function handleBreakStart() {
+  const sessions = readSessions();
 
-function readProjects(): Project[] {
-  const rawData = fs.readFileSync(projectsFilePath, 'utf8');
-  return rawData ? JSON.parse(rawData) : {};
-}
+  if (!sessions.length) {
+    console.log('You have to clock in first');
+    rl.close();
+  } else {
+    const lastSession = sessions[sessions.length - 1];
 
-function writeSessions(sessions: Session[]) {
-  fs.writeFileSync(sessionsFilePath, JSON.stringify(sessions, null, 2));
-}
-
-function writeProjects(projects: Project[]) {
-  fs.writeFileSync(projectsFilePath, JSON.stringify(projects, null, 2));
-}
-
-function sanitizeInput(str: string): string {
-  return str.trim().toLowerCase();
-}
-
-function promptUseExistingProject(): Promise<boolean> {
-  return new Promise((res) => {
-    rl.question('Use existing project? (y/n): ', (ans) => {
-      if (sanitizeInput(ans) === 'y') {
-        res(true);
-      } else {
-        res(false);
-      }
-    });
-  });
-}
-
-function whichProjectPrompt({
-  attempts = 0,
-  projects,
-}: {
-  attempts?: number;
-  projects: Project[];
-}): Promise<Project> {
-  return new Promise((res, rej) => {
-    if (attempts === 3) {
-      console.log('Too many incorrect attempts');
+    if (lastSession.out) {
+      console.log('You have to clock in first');
       rl.close();
     } else {
-      const projectIDs = projects.map((p) => p.id);
-      // print all projects to console
-      let projectsList = '';
-      projects.forEach((p) => (projectsList += `\n${p.id} - ${p.name}`));
-      console.log(projectsList);
-      console.log('');
+      const datetimeResponse = await getTimePrompt({ rl });
 
-      rl.question('Which project (enter associated number): ', (id) => {
-        const project = projects.find((p) => p.id === +id);
-        if (project) {
-          res(project);
-        } else {
-          console.log('Incorrect project number.');
-          whichProjectPrompt({
-            attempts: attempts + 1,
-            projects,
-          });
-        }
-      });
-    }
-  });
-}
-
-function createNewSession({
-  projectID,
-  lastSessionID,
-}: {
-  projectID: number;
-  lastSessionID: number;
-}): Promise<Session> {
-  return new Promise((res) => {
-    rl.question(
-      'Session description? (optional, press enter to skip): ',
-      (description) => {
-        res({
-          description,
-          id: lastSessionID + 1,
-          in: getCurrentDatetime(),
-          out: null,
-          projectID,
-        });
+      if (datetimeResponse.success) {
+        lastSession.out = datetimeResponse.data;
+        writeSessions(sessions);
+        console.log('Break started');
       }
-    );
-  });
-}
-
-function createNewProject({
-  attempts = 0,
-  projects,
-}: {
-  attempts?: number;
-  projects: Project[];
-}): Promise<Project> {
-  return new Promise((res) => {
-    const projectNames = projects.map((p) => p.name.trim().toLowerCase());
-
-    if (attempts === 3) {
-      console.log('Too many incorrect attempts. Closing');
-      rl.close();
-    } else {
-      rl.question('New project name?: ', (name) => {
-        if (projectNames.includes(sanitizeInput(name))) {
-          console.log('Project already exists');
-          createNewProject({ attempts: attempts + 1, projects });
-        } else {
-          const newProjectID = projects.length
-            ? projects[projects.length - 1].id + 1
-            : 1;
-          res({
-            id: newProjectID,
-            name: name,
-          });
-        }
-      });
     }
-  });
+  }
 }
 
-function getClockOutDatetime({
-  sessionDescription = 'UNKNOWN',
-  projectName = 'UNKNOWN PROJECT',
-}: {
-  sessionDescription?: string;
-  projectName?: string;
-}): Promise<string> {
-  return new Promise((res) => {
-    rl.question(
-      `Clocked in on "${projectName || 'unnamed project'}" working on "${
-        sessionDescription || 'unknown'
-      }". Clock out using current datetime? (y/n): `,
-      (resp) => {
-        if (sanitizeInput(resp) === 'y') {
-          res(getCurrentDatetime());
-        } else {
-          rl.question(
-            `Provide clockout datetime in local time: (YYYY/MM/DD HH:mm:ss): `,
-            (datetime) => {
-              if (dayjs(datetime).isValid()) {
-                const userDate = new Date(datetime);
-                // Get user's timezone offset in minutes
-                const userOffset = userDate.getTimezoneOffset();
-                // Adjust user-provided date to UTC
-                const utcDate = new Date(
-                  userDate.getTime() + userOffset * 60 * 1000
-                );
-                res(utcDate.toISOString());
-              } else {
-                console.log('Invalid datetime. Closing');
-                rl.close();
-              }
-            }
-          );
-        }
-      }
-    );
-  });
-}
+/*=============================================================================
+= Break End
+=============================================================================*/
 
-async function handleClockIn() {
-  const projects: Project[] = readProjects();
-  const sessions: Session[] = readSessions();
+async function handleBreakEnd() {
+  const sessions = readSessions();
 
   try {
-    // if no prior history
-    if (!sessions.length && !projects.length) {
-      const newProject = await createNewProject({ projects });
-      const newSession = await createNewSession({
-        projectID: newProject.id,
-        lastSessionID: 0,
-      });
-      projects.push(newProject);
-      sessions.push(newSession);
-      writeProjects(projects);
-      writeSessions(sessions);
+    if (!sessions.length) {
+      console.log("You've never tracked anything before");
       rl.close();
     } else {
       const lastSession = sessions[sessions.length - 1];
-      const lastProject = projects.find((p) => p.id === lastSession.projectID);
 
-      // if user forgot to clock out last time
-      if (lastSession && lastSession.in !== null && !lastSession.out) {
-        console.log('Currently clocked in.');
-        const newClockOutDatetime = await getClockOutDatetime({
-          projectName: lastProject?.name,
-          sessionDescription: lastSession.description || '',
-        });
-
-        lastSession.out = newClockOutDatetime;
-        writeSessions(sessions);
-        console.log('Clocked out successfully.');
-        handleClockIn();
-      }
-
-      // handle actual clock in
-      const useExistingProject = await promptUseExistingProject();
-      if (useExistingProject) {
-        const project = await whichProjectPrompt({ projects });
-        const newSession = await createNewSession({
-          projectID: project.id,
-          lastSessionID: lastSession.id,
-        });
-
-        sessions.push(newSession);
-        writeSessions(sessions);
+      if (!lastSession.out) {
+        console.log("You're already clocked in");
+        rl.close();
       } else {
-        const newProject = await createNewProject({ projects });
-        const newSession = await createNewSession({
-          projectID: newProject.id,
-          lastSessionID: lastSession.id,
-        });
+        const datetimeResponse = await getTimePrompt({ rl });
 
-        sessions.push(newSession);
-        projects.push(newProject);
-        writeSessions(sessions);
-        writeProjects(projects);
+        if (datetimeResponse.success) {
+          const newSession = {
+            ...lastSession,
+            in: datetimeResponse.data,
+            out: null,
+          };
+          sessions.push(newSession);
+          writeSessions(sessions);
+          console.log('Break ended');
+          rl.close();
+        } else {
+          throw new Error(datetimeResponse.error);
+        }
       }
-
-      console.log('Clocked in successfully.');
-      rl.close();
     }
   } catch (err) {
     console.log(err);
-    console.log(new Error('handleClockIn Catch Error'));
     rl.close();
   }
 }
 
-async function handleClockOut() {
-  const projects = readProjects();
-  const sessions = readSessions();
-  const currSession = sessions[sessions.length - 1];
-  const currProject = projects.find((p) => p.id === currSession.projectID);
+/*=============================================================================
+= Clock In
+=============================================================================*/
 
-  if (currSession.out) {
-    console.log('Not clocked in');
+async function handleClockIn() {
+  try {
+    const projects = readProjects();
+    const sessions = readSessions();
+    const tasks = readTasks();
+
+    // use existing or create new project
+    const projResponse = await whichProjectPrompt({ projects, rl });
+
+    if (projResponse.success) {
+      const project = projResponse.data;
+
+      // use existing or create new task
+      const taskResponse = await whichTaskPrompt({
+        projectID: project.id,
+        rl,
+        tasks,
+      });
+
+      if (taskResponse.success) {
+        const task = taskResponse.data;
+
+        const timeResponse = await getTimePrompt({ rl });
+
+        if (timeResponse.success) {
+          // create an assocated session
+          const sessionResponse = await createNewSessionPrompt({
+            datetime: timeResponse.data,
+            projectID: project.id,
+            sessions,
+            taskID: task.id,
+            rl,
+          });
+
+          if (sessionResponse.success) {
+            writeProjects(projects);
+            writeTasks(tasks);
+            writeSessions(sessions);
+            console.log(
+              `Clocked in to ${project.name} on ${task.name} working on ${sessionResponse.data.description}`
+            );
+            rl.close();
+          }
+        } else {
+          throw new Error(timeResponse.error);
+        }
+      } else {
+        throw new Error(taskResponse.error);
+      }
+    } else {
+      throw new Error(projResponse.error);
+    }
+  } catch (err) {
+    console.log(err);
+    rl.close();
+  }
+}
+
+/*=============================================================================
+= Clock Out
+=============================================================================*/
+
+async function handleClockOut() {
+  const sessions = readSessions();
+  const lastSession = sessions.length && sessions[sessions.length - 1];
+
+  try {
+    if (!sessions.length || !lastSession || lastSession.out) {
+      console.log('Not clocked in.');
+      rl.close();
+    } else {
+      const timeResponse = await getTimePrompt({ rl });
+
+      if (timeResponse.success) {
+        lastSession.out = timeResponse.data;
+        writeSessions(sessions);
+        console.log('Clocked out successfully');
+        rl.close();
+      } else {
+        throw new Error(timeResponse.error);
+      }
+    }
+  } catch (err) {
+    console.log(err);
+    rl.close();
+  }
+}
+
+/*=============================================================================
+= Create Project
+=============================================================================*/
+
+async function handleCreateNewProject() {
+  const projects = readProjects();
+  const projectResponse = await createNewProjectPrompt({ projects, rl });
+
+  if (projectResponse.success) {
+    projects.push(projectResponse.data);
+    writeProjects(projects);
+    console.log(`${projectResponse.data.name} created successfully.`);
     rl.close();
   } else {
-    const clockOutDatetime = await getClockOutDatetime({
-      projectName: currProject?.name,
-      sessionDescription: currSession?.description || '',
-    });
-    currSession.out = clockOutDatetime;
-    writeSessions(sessions);
+    console.log(`Unable to create project. Error: ${projectResponse.error}`);
     rl.close();
-    console.log('Clocked out successfully');
+  }
+}
+
+/*=============================================================================
+= Switch Project
+=============================================================================*/
+
+async function handleSwitchProject() {
+  const projects = readProjects();
+  const tasks = readTasks();
+  const sessions = readSessions();
+
+  try {
+    const projectResponse = await whichProjectPrompt({ projects, rl });
+
+    if (projectResponse.success) {
+      const project = projectResponse.data;
+      const taskResponse = await whichTaskPrompt({
+        projectID: project.id,
+        rl,
+        tasks,
+      });
+
+      if (taskResponse.success) {
+        const task = taskResponse.data;
+        const timeResponse = await getTimePrompt({ rl });
+
+        if (timeResponse.success) {
+          const datetime = timeResponse.data;
+          const sessionResponse = await createNewSessionPrompt({
+            datetime,
+            projectID: project.id,
+            rl,
+            sessions,
+            taskID: task.id,
+          });
+
+          if (sessionResponse.success) {
+            writeProjects(projects);
+            writeTasks(tasks);
+            writeSessions(sessions);
+            console.log(
+              `Switched to ${project.name} > ${task.name} working on ${
+                sessionResponse.data.description || 'unknown'
+              }`
+            );
+            rl.close();
+          }
+        } else {
+          throw new Error(timeResponse.error);
+        }
+      } else {
+        throw new Error(taskResponse.error);
+      }
+    } else {
+      throw new Error(projectResponse.error);
+    }
+  } catch (err) {
+    console.log(err);
+    rl.close();
+  }
+}
+
+/*=============================================================================
+= Switch Task
+=============================================================================*/
+
+async function handleSwitchTask() {
+  const sessions = readSessions();
+  const tasks = readTasks();
+
+  try {
+    if (!sessions.length) {
+      console.log('No sessions found');
+      rl.close();
+    } else {
+      const lastSession = sessions[sessions.length - 1];
+
+      if (lastSession.out) {
+        console.log('You have to be clocked in to switch tasks');
+        rl.close();
+      } else {
+        const taskResponse = await whichTaskPrompt({
+          tasks,
+          projectID: lastSession.projectID,
+          rl,
+        });
+
+        if (taskResponse.success) {
+          const task = taskResponse.data;
+          const timeResponse = await getTimePrompt({ rl });
+
+          if (timeResponse.success) {
+            const datetime = timeResponse.data;
+            const sessionResponse = await createNewSessionPrompt({
+              datetime,
+              projectID: lastSession.projectID,
+              rl,
+              sessions,
+              taskID: task.id,
+            });
+
+            if (sessionResponse.success) {
+              lastSession.out = datetime;
+              writeTasks(tasks);
+              writeSessions(sessions);
+              console.log(
+                `Switched to ${task.name} working on ${
+                  sessionResponse.data.description || 'unknown'
+                }`
+              );
+              rl.close();
+            }
+          } else {
+            throw new Error(timeResponse.error);
+          }
+        } else {
+          throw new Error(taskResponse.error);
+        }
+      }
+    }
+  } catch (err) {
+    console.log(err);
+    rl.close();
   }
 }
 
 function handleStatus() {
   const projects = readProjects();
+  const tasks = readTasks();
   const sessions = readSessions();
 
-  const currSession = sessions.length && sessions[sessions.length - 1];
-
-  if (currSession && !currSession.out) {
-    const project = projects.find((p) => p.id === currSession.projectID);
-    console.log(
-      `Clocked in to ${project?.name} working on ${currSession.description}`
-    );
+  if (!sessions.length) {
+    console.log("You've never tracked anything before");
   } else {
-    console.log('Not currently clocked in.');
-  }
+    const lastSession = sessions[sessions.length - 1];
 
+    if (lastSession.out) {
+      console.log("You're not clocked in");
+    } else {
+      const project = projects.find((p) => p.id === lastSession.projectID);
+      const task = projects.find((t) => t.id === lastSession.taskID);
+      console.log(
+        `You're clocked in to \nProject: ${project?.name} \nTask: ${task?.name} \nDescription: ${lastSession?.description}`
+      );
+    }
+  }
   rl.close();
 }
+
+/*=============================================================================
+= CLI
+=============================================================================*/
 
 function main() {
   const [_, __, command] = process.argv;
 
   switch (command) {
-    case 'status':
-      handleStatus();
+    case 'break-end':
+      handleBreakEnd();
+      break;
+    case 'break-start':
+      handleBreakStart();
+      break;
+    case 'create-project':
+      handleCreateNewProject();
       break;
     case 'in':
       handleClockIn();
       break;
+    case 'status':
+      handleStatus();
+      break;
+    case 'switch':
+      handleSwitchProject();
+      break;
+    case 'switch-task':
+      handleSwitchTask();
     case 'out':
       handleClockOut();
       break;
-    case 'switch':
-    // TODO: switch between tasks (create a new session)
     default:
-      console.log('Invalid command. Use "in" or "out".');
+      console.log(
+        'Invalid command. Use "help" for a list of available commands.'
+      );
       process.exit(1);
   }
 }

@@ -1,12 +1,29 @@
 export interface Session {
   description: string | null;
-  id: number;
+  id: string;
   in: string | null;
   out: string | null;
-  projectID: number;
+  taskID: string;
+  projectID: string;
+}
+
+export interface Task {
+  id: string;
+  projectID: string;
+  name: string;
 }
 
 export interface Project {
-  id: number;
+  id: string;
   name: string;
+}
+
+export interface PromptSuccessResponse<T> {
+  success: true;
+  data: T;
+}
+
+export interface PromptErrorResponse {
+  success: false;
+  error: string;
 }
